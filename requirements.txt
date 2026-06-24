@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+redis>=5.0,<6.0
+httpx
+pydantic
+python-dotenv
