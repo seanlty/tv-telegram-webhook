@@ -10,20 +10,32 @@ TradingView -> FastAPI /webhook -> Redis queue -> Worker batch -> Telegram
 
 ```text
 tv-telegram-webhook/
-├─ src/
-│  └─ main.py
-├─ data/
-│  ├─ raw/
-│  └─ processed/
-├─ notebooks/
-├─ docs/
-├─ tests/
-├─ README.md
-├─ requirements.txt
-└─ .gitignore
+|-- src/
+|   `-- main.py
+|-- data/
+|   |-- raw/
+|   `-- processed/
+|-- notebooks/
+|-- docs/
+|-- tests/
+|-- README.md
+|-- requirements.txt
+`-- .gitignore
 ```
 
-The repository also keeps `Dockerfile.web` and `Dockerfile.worker` for Zeabur services.
+The root `Dockerfile` is the default Zeabur Web service image. The repository also keeps `Dockerfile.web` as an explicit Web copy and `Dockerfile.worker` for the background worker service.
+
+## Zeabur Services
+
+Create three services:
+
+```text
+Redis
+Web service: Dockerfile
+Worker service: Dockerfile.worker
+```
+
+The Web service should be public. The Worker service should not expose a public domain.
 
 ## Environment Variables
 

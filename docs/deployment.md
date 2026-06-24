@@ -4,7 +4,7 @@ Create three services:
 
 ```text
 Redis
-Web service: Dockerfile.web
+Web service: Dockerfile
 Worker service: Dockerfile.worker
 ```
 
@@ -22,7 +22,9 @@ DEDUP_TTL_SECONDS=300
 
 The Redis template should provide `REDIS_CONNECTION_STRING`. If not, set `REDIS_URL`.
 
-Use `Dockerfile.web` for the FastAPI service and `Dockerfile.worker` for the background worker.
+Use the root `Dockerfile` for the FastAPI Web service. It is intentionally present because Zeabur looks for `Dockerfile` by default.
+
+Use `Dockerfile.worker` for the background worker service, and keep that service private because it only consumes Redis queue messages and sends Telegram batches.
 
 Health check:
 
