@@ -1,4 +1,7 @@
-# Zeabur Deployment
+# Legacy Zeabur Deployment
+
+For the current Railway deployment and secret rotation procedure, follow
+[Railway migration](railway-migration.md). The steps below describe the old host.
 
 Create three services:
 

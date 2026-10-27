@@ -2,6 +2,15 @@ __pycache__/
 *.py[cod]
 
 .env
+.env.*
+!.env.example
+.secrets/
+backups/
+*.rdb
+*.aof
+*.pem
+*.key
+*.local.md
 .venv/
 venv/
 

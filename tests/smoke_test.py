@@ -6,7 +6,7 @@ import json
 import os
 import sys
 import time
-import types
+import uuid
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -18,12 +18,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 REDIS_URL = os.getenv("TEST_REDIS_URL", "redis://localhost:6379/0")
-QUEUE_KEY = "tv:test:signals:smoke"
-DEDUP_PREFIX = "tv:test:dedup:smoke:"
+RUN_ID = uuid.uuid4().hex
+QUEUE_KEY = f"tv:test:signals:{RUN_ID}"
+DEDUP_PREFIX = f"tv:test:dedup:{RUN_ID}:"
 
 os.environ.update(
     {
         "TV_SECRET": "test",
+        "TG_TOKEN": "test-only-no-real-send",
+        "TG_CHAT_ID": "test-only",
+        "REDIS_CONNECTION_STRING": REDIS_URL,
         "REDIS_URL": REDIS_URL,
         "QUEUE_KEY": QUEUE_KEY,
         "DEDUP_PREFIX": DEDUP_PREFIX,
@@ -36,39 +40,7 @@ os.environ.update(
 )
 
 
-class AsyncRedisFacade:
-    def __init__(self, inner):
-        self.inner = inner
-        self.closed = False
-        self.ping_count = 0
-
-    @classmethod
-    def from_url(cls, url, decode_responses=True):
-        return cls(SyncRedis.from_url(url, decode_responses=decode_responses))
-
-    async def ping(self):
-        self.ping_count += 1
-        return self.inner.ping()
-
-    async def eval(self, script, numkeys, *keys_and_args):
-        return self.inner.eval(script, numkeys, *keys_and_args)
-
-    async def lpop(self, key):
-        return self.inner.lpop(key)
-
-    async def rpush(self, key, *values):
-        return self.inner.rpush(key, *values)
-
-    async def aclose(self):
-        self.closed = True
-
-
-try:
-    import redis.asyncio  # noqa: F401
-except ModuleNotFoundError:
-    redis_asyncio = types.ModuleType("redis.asyncio")
-    redis_asyncio.Redis = AsyncRedisFacade
-    sys.modules["redis.asyncio"] = redis_asyncio
+import redis.asyncio  # Require the actual production client; no compatibility facade.
 
 
 sync_redis = SyncRedis.from_url(REDIS_URL, decode_responses=True)
@@ -143,6 +115,9 @@ async def run_smoke_test():
         assert (await call_webhook(app_main, dict(payload, side="HOLD")))[0] == 400
         assert (await call_webhook(app_main, "__invalid_json__"))[0] == 400
         assert sync_redis.llen(QUEUE_KEY) == 1
+        queued = json.loads(sync_redis.lindex(QUEUE_KEY, 0))
+        assert "raw" not in queued and "secret" not in queued
+        assert (await call_webhook(app_main, []))[0] == 400
 
     cleanup()
     app_main.redis_client = app_main.Redis.from_url(REDIS_URL, decode_responses=True)
@@ -186,6 +161,8 @@ async def run_smoke_test():
     await asyncio.wait_for(task, timeout=5)
 
     assert [batch["count"] for batch in sent] == [200, 5]
+    assert all("send_at" in batch for batch in sent)
+    assert sent[1]["send_at"] - sent[0]["send_at"] >= 1.1
     assert sync_redis.llen(QUEUE_KEY) == 0
 
     cleanup()
@@ -199,8 +176,12 @@ async def run_smoke_test():
         )
 
     graceful_stop = asyncio.Event()
+    app_main.BATCH_SECONDS = 30
     graceful_task = asyncio.create_task(app_main.worker_loop(graceful_stop))
-    await asyncio.sleep(0.1)
+    deadline = time.monotonic() + 10
+    while sync_redis.llen(QUEUE_KEY) and time.monotonic() < deadline:
+        await asyncio.sleep(0.05)
+    assert sync_redis.llen(QUEUE_KEY) == 0, "Worker did not collect shutdown batch"
     graceful_stop.set()
     await asyncio.wait_for(graceful_task, timeout=5)
 
@@ -212,4 +193,8 @@ async def run_smoke_test():
 
 
 if __name__ == "__main__":
-    asyncio.run(run_smoke_test())
+    try:
+        asyncio.run(run_smoke_test())
+    finally:
+        cleanup()
+        sync_redis.close()

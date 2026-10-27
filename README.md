@@ -1,6 +1,6 @@
 # tv-telegram-webhook
 
-TradingView burst webhook for Zeabur:
+TradingView burst webhook for Railway (Python 3.11+):
 
 ```text
 TradingView -> FastAPI /webhook -> Redis queue -> Worker batch -> Telegram
@@ -23,9 +23,10 @@ tv-telegram-webhook/
 `-- .gitignore
 ```
 
-The root `Dockerfile` is the default Zeabur Web service image. The repository also keeps `Dockerfile.web` as an explicit Web copy and `Dockerfile.worker` for the background worker service.
+The root `Dockerfile` builds Web. `Dockerfile.worker` builds the background worker.
+`Dockerfile.web` remains an identical explicit Web alternative.
 
-## Zeabur Services
+## Railway Services
 
 Create three services:
 
@@ -35,17 +36,21 @@ Web service: Dockerfile
 Worker service: Dockerfile.worker
 ```
 
-The Web service should be public. The Worker service should not expose a public domain.
+Connect Web and Worker to the same GitHub repository and migration branch.
+Keep all three services in the same region, with one Worker replica and no sleeping.
+Only Web needs a public domain. Redis needs a persistent `/data` volume and private networking.
+See [deployment and credential rotation](docs/railway-migration.md) before cutting over.
 
 ## Environment Variables
 
-Required:
+Web requires a newly generated `TV_SECRET`. Worker requires a newly rotated
+`TG_TOKEN` and the existing `TG_CHAT_ID`. Both require a Redis connection:
 
 ```env
 TV_SECRET=replace-with-a-long-random-secret
 TG_TOKEN=telegram-bot-token
 TG_CHAT_ID=telegram-chat-id
-REDIS_CONNECTION_STRING=redis://...
+REDIS_URL=${{Redis.REDIS_URL}}
 ```
 
 Burst defaults:
@@ -59,7 +64,9 @@ QUEUE_KEY=tv:signals
 DEDUP_PREFIX=tv:dedup:
 ```
 
-Zeabur Redis usually provides `REDIS_CONNECTION_STRING` automatically.
+Railway resolves the Redis reference. Do not copy the old Zeabur connection string.
+`REDIS_CONNECTION_STRING` remains supported for legacy deployments and takes
+precedence over `REDIS_URL`, so leave it unset on Railway.
 
 ## Local Run
 
@@ -86,7 +93,7 @@ python tests/smoke_test.py
 Webhook URL:
 
 ```text
-https://your-zeabur-domain/webhook
+https://your-railway-domain/webhook
 ```
 
 Alert message:

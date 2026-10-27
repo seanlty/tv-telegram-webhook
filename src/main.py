@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+import secrets
 import signal
 import sys
 import time
@@ -50,9 +51,13 @@ return 0
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await redis_client.ping()
-    yield
-    await redis_client.aclose()
+    try:
+        if not TV_SECRET:
+            raise RuntimeError("Missing TV_SECRET")
+        await redis_client.ping()
+        yield
+    finally:
+        await redis_client.aclose()
 
 
 app = FastAPI(title="TradingView Telegram Webhook", lifespan=lifespan)
@@ -70,7 +75,13 @@ async def webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    if data.get("secret") != TV_SECRET:
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Expected JSON object")
+
+    supplied_secret = data.get("secret")
+    if not TV_SECRET or not isinstance(supplied_secret, str) or not secrets.compare_digest(
+        supplied_secret.encode(), TV_SECRET.encode()
+    ):
         raise HTTPException(status_code=403, detail="Invalid secret")
 
     symbol = str(data.get("symbol", "")).upper()
@@ -96,7 +107,6 @@ async def webhook(request: Request):
         "price": price,
         "timeframe": timeframe,
         "time": alert_time,
-        "raw": data,
     }
 
     queued = await redis_client.eval(
@@ -254,7 +264,9 @@ async def send_batch(
         last_sent = time.time()
         print(f"sent batch: {len(batch)}")
     except Exception as exc:
-        print(f"telegram failed: {exc}")
+        # HTTP exceptions include the request URL, which contains the bot token.
+        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        print(f"telegram failed: {type(exc).__name__}; status={status}")
         await requeue_batch(batch)
 
         if not stop_event.is_set():
@@ -267,11 +279,13 @@ async def worker_loop(stop_event: asyncio.Event | None = None):
     if stop_event is None:
         stop_event = asyncio.Event()
 
-    await warmup_redis()
     last_sent = 0.0
 
     try:
-        while True:
+        if not TG_TOKEN or not TG_CHAT_ID:
+            raise RuntimeError("Missing TG_TOKEN or TG_CHAT_ID")
+        await warmup_redis()
+        while not stop_event.is_set():
             batch = await collect_batch(stop_event)
 
             if batch:
